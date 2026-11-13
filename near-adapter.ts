@@ -15,7 +15,6 @@ export interface NearCall {
   balance?: string;               // current balance of the relevant asset (same units as the amount); default "0"
   asset?: string;                 // "NEAR" or the token contract id (e.g. "wrap.near")
   provenance?: "user" | "untrusted_data";
-  idempotencyKey?: string;        // dedup: e.g. an invoice id; honest repeats carry a fresh one
   bridgeIds?: string[];           // optional: known bridge/locker account ids to flag as exfil
   swapTargets?: string[];         // optional: known DEX/router ids for ft_transfer_call swaps
 }
@@ -26,7 +25,7 @@ const DEFAULT_SWAPS = ["v2.ref-finance.near", "ref-finance.near", "v1.jumbo_exch
 // Map one NEAR tool-call to a ProposedTx, or null if it moves no value / is nothing to gate.
 export function nearToProposedTx(c: NearCall): ProposedTx | null {
   const balance = BigInt(c.balance ?? "0");
-  const base = { balance, provenance: c.provenance, idempotencyKey: c.idempotencyKey };
+  const base = { balance, provenance: c.provenance };
   const bridges = new Set([...(c.bridgeIds ?? []), ...DEFAULT_BRIDGES]);
   const swaps = new Set([...(c.swapTargets ?? []), ...DEFAULT_SWAPS]);
 

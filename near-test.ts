@@ -2,7 +2,7 @@
 import { inspectNear, NearCall } from "./near-adapter.js";
 import { newState, ShieldConfig } from "./shield.js";
 
-const cfg: ShieldConfig = { allowlist: new Set(["alice.near"]), maxFractionBps: 5000 };
+const cfg: ShieldConfig = { allowlist: new Set(["alice.near", "payroll.near"]), maxFractionBps: 5000, recurringPayees: new Set(["payroll.near"]) };
 const ok = (d: { allow: boolean }) => (d.allow ? "allow" : "BLOCK");
 
 // native drain to a non-allowlisted account
@@ -27,8 +27,8 @@ inspectNear({ method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "a
 console.log("duplicate pay → alice    :", ok(inspectNear(
   { method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "alice.near", amount: "20" }, balance: "100" }, cfg, dup)));
 
-// honest renewal: same payee & amount, but a fresh idempotency key → allowed
+// honest recurring payroll: same payee & amount, but the OWNER authorized recurringPayees → allowed
 const ren = newState(100n);
-inspectNear({ method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "alice.near", amount: "20" }, balance: "100", idempotencyKey: "inv-1" }, cfg, ren);
-console.log("honest renewal (new key) :", ok(inspectNear(
-  { method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "alice.near", amount: "20" }, balance: "100", idempotencyKey: "inv-2" }, cfg, ren)));
+inspectNear({ method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "payroll.near", amount: "20" }, balance: "100" }, cfg, ren);
+console.log("honest recurring payroll :", ok(inspectNear(
+  { method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "payroll.near", amount: "20" }, balance: "100" }, cfg, ren)));

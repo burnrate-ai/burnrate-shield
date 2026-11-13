@@ -1,5 +1,5 @@
 import { inspect, newState, ShieldConfig } from "./shield.js";
-const cfg: ShieldConfig = { allowlist: new Set(["ownerdest"]), maxFractionBps: 5000 };
+const cfg: ShieldConfig = { allowlist: new Set(["ownerdest", "payrolldest"]), maxFractionBps: 5000, recurringPayees: new Set(["payrolldest"]) };
 // drip: 10 кусков по 9 из 100
 const st = newState(100n); let moved = 0n, blockedAt = -1;
 for (let i = 0; i < 20; i++) {
@@ -22,13 +22,13 @@ console.log("durable_nonce    :", inspect({ kind: "durable_nonce", to: "attacker
 // no over-block: handing authority to an ALLOWLISTED dest is allowed
 console.log("setAuthority→owner (allow?):", inspect({ kind: "set_authority", to: "ownerDest", asset: "SOL", amount: 0n, balance: 100n }, cfg).allow);
 
-// --- idempotency / duplicate payment (attack class from Clearance) ---
+// --- idempotency / duplicate payment (attack class from Clearance; guard-owned, not agent-owned) ---
 const idA = newState(100n);
 inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idA); // first pay
-console.log("dup retry (no key):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idA).reason);
+console.log("dup retry (same amount):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idA).reason);
 const idB = newState(100n);
-inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n, idempotencyKey: "inv-1" }, cfg, idB);
-console.log("honest renewal (new key) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n, idempotencyKey: "inv-2" }, cfg, idB).allow);
+inspect({ kind: "eth_transfer", to: "payrollDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idB);
+console.log("honest recurring (owner-authorized) allow?:", inspect({ kind: "eth_transfer", to: "payrollDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idB).allow);
 const idC = newState(100n);
 inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idC);
 console.log("two invoices (diff amount) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 35n, balance: 100n }, cfg, idC).allow);
