@@ -12,3 +12,12 @@ console.log("swap 25% :", inspect({ kind: "swap", to: "pool", asset: "ETH", amou
 console.log("swap 1%  :", inspect({ kind: "swap", to: "pool", asset: "ETH", amount: 0n, balance: 100n, slippageBps: 100 }, cfg).allow);
 console.log("легит→owner 40:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 40n, balance: 100n }, cfg, newState(100n)).allow);
 console.log("approve unlim :", inspect({ kind: "approve", to: "drainer", asset: "USDC", amount: 0n, balance: 0n, unlimited: true }, cfg).reason);
+
+// --- gap-closing rules (SPEC §4): handover / bridge / durable-nonce ---
+console.log("setAuthority→atk :", inspect({ kind: "set_authority", to: "attacker", asset: "SOL", amount: 0n, balance: 100n }, cfg).reason);
+console.log("spl_delegate→atk :", inspect({ kind: "spl_delegate", to: "attacker", asset: "USDC", amount: 0n, balance: 100n }, cfg).reason);
+console.log("set_code→atk     :", inspect({ kind: "set_code", to: "attacker", asset: "ETH", amount: 0n, balance: 100n, provenance: "untrusted_data" }, cfg).reason);
+console.log("bridge→atk       :", inspect({ kind: "bridge", to: "attacker", asset: "USDC", amount: 100n, balance: 100n }, cfg).reason);
+console.log("durable_nonce    :", inspect({ kind: "durable_nonce", to: "attacker", asset: "SOL", amount: 5n, balance: 100n }, cfg).reason);
+// no over-block: handing authority to an ALLOWLISTED dest is allowed
+console.log("setAuthority→owner (allow?):", inspect({ kind: "set_authority", to: "ownerDest", asset: "SOL", amount: 0n, balance: 100n }, cfg).allow);

@@ -5,10 +5,18 @@
 // wallet at all — that gap is exactly why this exists.)
 
 export interface ProposedTx {
-  kind: "eth_transfer" | "erc20_transfer" | "approve" | "swap";
-  to: string;            // destination / spender / pool
-  asset: string;         // "ETH", "USDC", ...
-  amount: bigint;        // wei / token units (0 for a pure swap spec)
+  kind:
+    // value transfers (chain-agnostic math):
+    | "eth_transfer" | "erc20_transfer" | "spl_transfer"
+    // approvals / swaps:
+    | "approve" | "swap"
+    // control-handover primitives (grant someone else control of the wallet/account):
+    | "spl_delegate" | "set_authority" | "set_code"
+    // exfil / deferred-execution channels:
+    | "bridge" | "durable_nonce";
+  to: string;            // destination / spender / new-authority / bridge recipient
+  asset: string;         // "ETH", "USDC", "SOL", ...
+  amount: bigint;        // wei / token units (0 for approve / set_authority / set_code)
   balance: bigint;       // current balance of that asset
   unlimited?: boolean;   // approve: unlimited allowance?
   provenance?: "user" | "untrusted_data"; // where the instruction came from
@@ -18,8 +26,8 @@ export interface ProposedTx {
 export interface ShieldConfig {
   allowlist: Set<string>;    // lower-cased destinations the owner pre-approved
   maxFractionBps: number;    // block a single transfer >= this share of balance to a non-allowlisted dest (bps)
-  maxSlippageBps?: number;   // G4: block a swap whose slippage exceeds this (bps). Default 300 (3%).
-  velocityCapBps?: number;   // velocity: block once cumulative non-allowlisted outflow this session reaches
+  maxSlippageBps?: number;   // block a swap whose slippage exceeds this (bps). Default 300 (3%).
+  velocityCapBps?: number;   // block once cumulative non-allowlisted outflow this session reaches
                              //           this share of the session-start balance (bps). Default 5000 (50%).
 }
 
@@ -35,21 +43,49 @@ export function newState(sessionStartBalance: bigint): ShieldState {
 
 export interface Decision { allow: boolean; reason: string; }
 
+const TRANSFER_KINDS = new Set<ProposedTx["kind"]>(["eth_transfer", "erc20_transfer", "spl_transfer"]);
+// actions that hand wallet/account control to another party — they move no (or little) balance in the
+// signed tx, so a balance-diff alone misses them; they are judged at the INSTRUCTION level.
+const HANDOVER_KINDS = new Set<ProposedTx["kind"]>(["spl_delegate", "set_authority", "set_code"]);
+
 export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState): Decision {
   const dest = tx.to.toLowerCase();
   const allowed = cfg.allowlist.has(dest);
   const maxSlip = cfg.maxSlippageBps ?? 300;
   const velCap = cfg.velocityCapBps ?? 5000;
 
-  // 1. prompt-injection: a value-moving action the owner never asked for
-  if (tx.provenance === "untrusted_data" && (tx.amount > 0n || tx.kind === "approve" || tx.kind === "swap")) {
+  // 1. prompt-injection: ANY consequential action the owner never asked for (not just a transfer).
+  if (tx.provenance === "untrusted_data" &&
+      (tx.amount > 0n || tx.kind === "approve" || tx.kind === "swap" ||
+       HANDOVER_KINDS.has(tx.kind) || tx.kind === "bridge" || tx.kind === "durable_nonce")) {
     return { allow: false, reason: "action originated from untrusted data (prompt injection), not the owner" };
   }
+
   // 2. unlimited / non-allowlisted approval to a spender
   if (tx.kind === "approve" && (tx.unlimited || allowed === false)) {
     return { allow: false, reason: `approval to non-allowlisted / unlimited spender ${tx.to}` };
   }
-  // 3. G4 — swap with excessive slippage (oracle/price manipulation, sandwich, LP-rug)
+
+  // 3. control handover — SPL Approve/delegate, setAuthority/assign, EIP-7702 set-code.
+  //    Hands control of the account to another party. Blocked unless the new authority is allowlisted.
+  //    (Instruction-level: these move no balance in the tx, so size/velocity would never fire.)
+  if (HANDOVER_KINDS.has(tx.kind) && !allowed) {
+    return { allow: false, reason: `${tx.kind} hands wallet/account control to non-allowlisted ${tx.to}` };
+  }
+
+  // 4. bridge — value leaving to the attacker on another chain. An address allowlist keyed on local
+  //    destinations does not cover a cross-chain recipient, so a bridge-out needs its own gate.
+  if (tx.kind === "bridge" && !allowed) {
+    return { allow: false, reason: `bridge exfil to non-allowlisted recipient ${tx.to}` };
+  }
+
+  // 5. durable-nonce / deferred execution — "harmless now", but it ARMS a later action the guard can
+  //    no longer re-check at execution time. A pre-sign guard cannot vouch for a deferred tx, so block it.
+  if (tx.kind === "durable_nonce") {
+    return { allow: false, reason: "durable-nonce / deferred execution not permitted — arms a later action beyond the guard's view" };
+  }
+
+  // 6. swap with excessive slippage (oracle/price manipulation, sandwich, LP-rug)
   if (tx.kind === "swap") {
     const slip = tx.slippageBps ?? 0;
     if (slip > maxSlip) {
@@ -57,15 +93,16 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
         reason: `swap blocked: slippage ${(slip / 100).toFixed(1)}% exceeds max ${(maxSlip / 100).toFixed(1)}%` };
     }
   }
-  // 4. drain: a large share of a balance leaving to a destination the owner never approved
-  if (tx.kind === "eth_transfer" || tx.kind === "erc20_transfer") {
+
+  // 7. drain + velocity: a large share of a balance leaving to a destination the owner never approved,
+  //    and cumulative drip below the single-tx cap.
+  if (TRANSFER_KINDS.has(tx.kind)) {
     if (!allowed) {
       const fracBps = tx.balance === 0n ? 0 : Number((tx.amount * 10000n) / tx.balance);
       if (fracBps >= cfg.maxFractionBps) {
         return { allow: false,
           reason: `drain blocked: ${(fracBps / 100).toFixed(1)}% of ${tx.asset} to non-allowlisted ${tx.to}` };
       }
-      // 5. velocity — defeats sub-threshold "drip" drains that each pass rule 4.
       if (state) {
         const prospective = state.movedOut + tx.amount;
         const basis = state.sessionStartBalance;
@@ -78,5 +115,6 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
       }
     }
   }
+
   return { allow: true, reason: "within policy" };
 }
