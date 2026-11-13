@@ -1,17 +1,19 @@
 # burnrate-shield
 
-Агент-агностичный **containment-слой** для AI-агентов, управляющих кошельком: инспектирует предлагаемую транзакцию и разрешает/блокирует по правилам, которые агент не может переопределить.
+![version](https://img.shields.io/badge/version-0.1.0-orange) ![License](https://img.shields.io/badge/License-MIT-green) ![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) ![agent-agnostic](https://img.shields.io/badge/agent-agnostic-blueviolet)
 
-## Правила (`shield.ts`)
-- **provenance** — блок, если действие выведено из untrusted-данных
-- **allowlist** — получатель не в белом списке
+> An agent-agnostic **containment layer** for AI agents that control a wallet: it inspects a proposed transaction and allows or blocks it by rules the agent cannot override — before anything reaches the chain.
+
+## Rules (`shield.ts`)
+- **provenance** — block if the action was derived from untrusted data
+- **allowlist** — recipient not on the owner's allowlist
 - **approval-cap** — unlimited / non-allowlisted approve
-- **drain** — вывод ≥ доли баланса (`maxFractionBps`)
-- **velocity** — накопленный отток ≥ `velocityCapBps` от стартового баланса
-- **slippage** — своп со slippage выше `maxSlippageBps`
-- **handover** — `setAuthority`/`assign`, SPL `delegate`, EIP-7702 `set_code`: передача контроля над аккаунтом не-allowlisted стороне (instruction-level, баланс в транзе не двигается)
-- **bridge gate** — вывод через мост не на allowlisted-получателя (allowlist по локальному адресу мост не покрывает)
-- **deferred-exec block** — durable-nonce / отложенное исполнение: pre-sign guard не может перепроверить транзу позже → блок как класс
+- **drain** — outflow ≥ a share of the balance (`maxFractionBps`)
+- **velocity** — cumulative outflow ≥ `velocityCapBps` of the session-start balance
+- **slippage** — a swap with slippage above `maxSlippageBps`
+- **handover** — `setAuthority`/`assign`, SPL `delegate`, EIP-7702 `set_code`: hands account control to a non-allowlisted party (instruction-level; no balance moves in the tx)
+- **bridge gate** — a bridge-out to a non-allowlisted recipient (an address allowlist does not cover a bridge)
+- **deferred-exec block** — durable-nonce / deferred execution: a pre-sign guard cannot re-check it later → blocked as a class
 
 ```ts
 import { inspect, newState } from "./shield.js";
@@ -19,14 +21,13 @@ const d = inspect(tx, cfg, newState(tx.balance));
 if (!d.allow) block(d.reason);
 ```
 
-## Тесты
+## Tests
 ```
-npx tsx port-test.ts   # проверка правил
-npx tsx fp-test.ts     # отсутствие ложных срабатываний на легитимных действиях
+npx tsx port-test.ts   # rule checks
+npx tsx fp-test.ts     # no false positives on legitimate actions
 ```
 
-## Экосистема
-- **[burnrate-bench](../burnrate-bench)** — независимый бенчмарк (спека + результаты)
-- наступательная часть (красный агент) — приватна, не публикуется
+## Ecosystem
+- **[burnrate-bench](../burnrate-bench)** — independent benchmark (spec + results)
 
-Статус пробелов: setAuthority/assign, SPL delegate, set-code, bridge-эксфил и durable-nonce — ЗАКРЫТЫ (правила handover / bridge gate / deferred-exec block). Остаток и обоснование — `burnrate-bench/SPEC.md` §4. Метрика бенча после фикса: 0.8% ущерба проходит (было ~49%).
+Gap status: setAuthority/assign, SPL delegate, set-code, bridge exfil and durable-nonce are CLOSED (handover / bridge gate / deferred-exec rules). Residuals and rationale: `burnrate-bench/SPEC.md` §4. Bench metric after the fix: 0.8% of modelled loss gets through (was ~49%).
