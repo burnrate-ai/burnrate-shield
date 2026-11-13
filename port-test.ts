@@ -21,3 +21,14 @@ console.log("bridge→atk       :", inspect({ kind: "bridge", to: "attacker", as
 console.log("durable_nonce    :", inspect({ kind: "durable_nonce", to: "attacker", asset: "SOL", amount: 5n, balance: 100n }, cfg).reason);
 // no over-block: handing authority to an ALLOWLISTED dest is allowed
 console.log("setAuthority→owner (allow?):", inspect({ kind: "set_authority", to: "ownerDest", asset: "SOL", amount: 0n, balance: 100n }, cfg).allow);
+
+// --- idempotency / duplicate payment (attack class from Clearance) ---
+const idA = newState(100n);
+inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idA); // first pay
+console.log("dup retry (no key):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idA).reason);
+const idB = newState(100n);
+inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n, idempotencyKey: "inv-1" }, cfg, idB);
+console.log("honest renewal (new key) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n, idempotencyKey: "inv-2" }, cfg, idB).allow);
+const idC = newState(100n);
+inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idC);
+console.log("two invoices (diff amount) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 35n, balance: 100n }, cfg, idC).allow);

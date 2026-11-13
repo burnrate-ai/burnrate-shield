@@ -14,6 +14,7 @@
 - **handover** — `setAuthority`/`assign`, SPL `delegate`, EIP-7702 `set_code`: hands account control to a non-allowlisted party (instruction-level; no balance moves in the tx)
 - **bridge gate** — a bridge-out to a non-allowlisted recipient (an address allowlist does not cover a bridge)
 - **deferred-exec block** — durable-nonce / deferred execution: a pre-sign guard cannot re-check it later → blocked as a class
+- **dedup (idempotency)** — an exact repeat of a recent payment to the same payee with no fresh idempotency key is blocked as a replay (e.g. agent told "payment failed, pay again"); honest repeats — a different amount, or a new idempotency key — pass. Attack class surfaced by [Clearance](https://github.com/Selliksss/clearance)
 
 ```ts
 import { inspect, newState } from "./shield.js";

@@ -21,6 +21,7 @@ export interface ProposedTx {
   unlimited?: boolean;   // approve: unlimited allowance?
   provenance?: "user" | "untrusted_data"; // where the instruction came from
   slippageBps?: number;  // swap: realized/expected price slippage in bps
+  idempotencyKey?: string; // dedup: a fresh key marks a genuinely NEW payment; a repeat without one is a replay
 }
 
 export interface ShieldConfig {
@@ -29,16 +30,20 @@ export interface ShieldConfig {
   maxSlippageBps?: number;   // block a swap whose slippage exceeds this (bps). Default 300 (3%).
   velocityCapBps?: number;   // block once cumulative non-allowlisted outflow this session reaches
                              //           this share of the session-start balance (bps). Default 5000 (50%).
+  dedupWindow?: number;      // idempotency: block an exact (payee+asset+amount) repeat within the last N
+                             //           payments unless it carries a NEW idempotency key. Default 8; 0 disables.
 }
 
 // Per-session state for the velocity rule. Create once per agent session and pass to every inspect().
 export interface ShieldState {
   sessionStartBalance: bigint;  // balance at session start, basis for the cumulative cap
   movedOut: bigint;             // cumulative non-allowlisted outflow allowed so far this session
+  recentPays: string[];         // dedup: recent payment keys "payee|asset|amount" (bounded by dedupWindow)
+  seenIdem: Set<string>;        // dedup: idempotency keys already used this session
 }
 
 export function newState(sessionStartBalance: bigint): ShieldState {
-  return { sessionStartBalance, movedOut: 0n };
+  return { sessionStartBalance, movedOut: 0n, recentPays: [], seenIdem: new Set() };
 }
 
 export interface Decision { allow: boolean; reason: string; }
@@ -97,6 +102,23 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
   // 7. drain + velocity: a large share of a balance leaving to a destination the owner never approved,
   //    and cumulative drip below the single-tx cap.
   if (TRANSFER_KINDS.has(tx.kind)) {
+    // 7a. idempotency / duplicate payment (attack class surfaced by Clearance, github.com/Selliksss/clearance):
+    //     an exact repeat of a recent payment to the SAME payee, with no fresh idempotency key, is a replay
+    //     (e.g. the agent is told "payment failed, pay again"). A genuine repeat — a new invoice or a renewal —
+    //     carries a NEW idempotency key and passes, so honest same-payee tasks are not blocked.
+    const dedupN = cfg.dedupWindow ?? 8;
+    if (state && dedupN > 0 && tx.amount > 0n) {
+      const payKey = `${dest}|${tx.asset}|${tx.amount}`;
+      const freshKey = tx.idempotencyKey !== undefined && !state.seenIdem.has(tx.idempotencyKey);
+      if (freshKey) {
+        state.seenIdem.add(tx.idempotencyKey as string);
+      } else if (state.recentPays.includes(payKey)) {
+        return { allow: false,
+          reason: `duplicate payment blocked: identical ${tx.asset} amount to ${tx.to} already paid this session, no new idempotency key (retry/replay)` };
+      }
+      state.recentPays.push(payKey);
+      if (state.recentPays.length > dedupN) state.recentPays.shift();
+    }
     if (!allowed) {
       const fracBps = tx.balance === 0n ? 0 : Number((tx.amount * 10000n) / tx.balance);
       if (fracBps >= cfg.maxFractionBps) {
