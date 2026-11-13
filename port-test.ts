@@ -1,4 +1,4 @@
-import { inspect, newState, ShieldConfig } from "./shield.js";
+import { inspect, newState, rollbackPay, ShieldConfig } from "./shield.js";
 const cfg: ShieldConfig = { allowlist: new Set(["ownerdest", "payrolldest"]), maxFractionBps: 5000, recurringPayees: new Set(["payrolldest"]) };
 // drip: 10 кусков по 9 из 100
 const st = newState(100n); let moved = 0n, blockedAt = -1;
@@ -32,3 +32,16 @@ console.log("honest recurring (owner-authorized) allow?:", inspect({ kind: "eth_
 const idC = newState(100n);
 inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idC);
 console.log("two invoices (diff amount) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 35n, balance: 100n }, cfg, idC).allow);
+
+// --- G39 lookalike payee (Clearance): 2% to a non-allowlisted dest slips under the 50% caps ---
+console.log("G39 lookalike, default   (allow?):", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, cfg, newState(100n)).allow, "  (expected true — under caps)");
+const strict: ShieldConfig = { ...cfg, strictAllowlist: true };
+console.log("G39 lookalike, STRICT    :", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, strict, newState(100n)).reason);
+console.log("strict: allowlisted dest (allow?):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 2n, balance: 100n }, strict, newState(100n)).allow, "  (expected true)");
+
+// --- rollbackPay: an allowed payment that FAILS on chain must not block the honest retry ---
+const rb = newState(100n);
+const pay = { kind: "eth_transfer" as const, to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n };
+inspect(pay, cfg, rb);            // allowed, recorded
+rollbackPay(rb, pay, cfg);        // chain send reverted → undo the record
+console.log("retry after rollback (allow?):", inspect(pay, cfg, rb).allow, "  (expected true — not a phantom duplicate)");

@@ -33,6 +33,11 @@ export interface ShieldConfig {
                              //           payments. Default 8; 0 disables.
   recurringPayees?: Set<string>; // lower-cased payees the OWNER pre-authorized for repeat payments
                              //           (the ONLY way an identical repeat is allowed — the agent cannot opt in).
+  strictAllowlist?: boolean; // if set, ANY transfer to a payee not on the allowlist (and not a recurring
+                             //           payee) is blocked outright, regardless of amount. For a payment
+                             //           agent with a fixed payee list this stops a small lookalike payment
+                             //           (Clearance G39: 2 NEAR to sh0p.sandbox slipped under the % caps).
+                             //           Off by default — a general wallet may pay new one-off destinations.
 }
 
 // Per-session state for the velocity rule. Create once per agent session and pass to every inspect().
@@ -47,6 +52,21 @@ export function newState(sessionStartBalance: bigint): ShieldState {
 }
 
 export interface Decision { allow: boolean; reason: string; }
+
+// Undo the bookkeeping for a transfer that inspect() ALLOWED but that then FAILED to land on chain.
+// inspect() records the payment key (and velocity) at allow-time, before the send result is known; if the
+// send reverts, call this so the owner's honest retry of the same amount is not blocked as a duplicate.
+// (Raised by Lev / Clearance: recentPays is written before the chain result.) Pass cfg so a non-allowlisted
+// transfer's velocity is also rolled back. No-op if the key was already evicted from the dedup window.
+export function rollbackPay(state: ShieldState, tx: ProposedTx, cfg: ShieldConfig): void {
+  const dest = tx.to.toLowerCase();
+  const payKey = `${dest}|${tx.asset}|${tx.amount}`;
+  const i = state.recentPays.lastIndexOf(payKey);
+  if (i >= 0) state.recentPays.splice(i, 1);
+  if (!cfg.allowlist.has(dest)) {
+    state.movedOut = state.movedOut > tx.amount ? state.movedOut - tx.amount : 0n;
+  }
+}
 
 const TRANSFER_KINDS = new Set<ProposedTx["kind"]>(["eth_transfer", "erc20_transfer", "spl_transfer"]);
 // actions that hand wallet/account control to another party — they move no (or little) balance in the
@@ -114,10 +134,18 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
       const payKey = `${dest}|${tx.asset}|${tx.amount}`;
       if (state.recentPays.includes(payKey)) {
         return { allow: false,
-          reason: `duplicate payment blocked: identical ${tx.asset} amount to ${tx.to} already paid this session (a retry must be owned by the system, not re-issued by the agent)` };
+          reason: `duplicate payment blocked: an identical ${tx.asset} payment to ${tx.to} was already sent this session — verify its status before paying again or reporting a failure (a genuine retry must be owned by the system, not re-issued by the agent)` };
       }
       state.recentPays.push(payKey);
       if (state.recentPays.length > dedupN) state.recentPays.shift();
+    }
+    // 7b. strict allowlist (opt-in): for a payment agent with a fixed payee list, a payee that is neither
+    //     allowlisted nor an owner-authorized recurring payee is blocked outright — this stops a small
+    //     lookalike payment (Clearance G39) that the % drain/velocity caps let through.
+    const knownPayee = allowed || !!cfg.recurringPayees?.has(dest);
+    if (cfg.strictAllowlist && !knownPayee) {
+      return { allow: false,
+        reason: `payee ${tx.to} is not on the allowlist (strict mode) — only pre-approved payees may receive ${tx.asset}` };
     }
     if (!allowed) {
       const fracBps = tx.balance === 0n ? 0 : Number((tx.amount * 10000n) / tx.balance);
