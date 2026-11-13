@@ -1,6 +1,6 @@
 # burnrate-shield
 
-![version](https://img.shields.io/badge/version-0.1.0-orange) ![License](https://img.shields.io/badge/License-MIT-green) ![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) ![agent-agnostic](https://img.shields.io/badge/agent-agnostic-blueviolet)
+![version](https://img.shields.io/badge/version-0.1.0-orange) ![License](https://img.shields.io/badge/License-MIT-green) ![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) ![agent-agnostic](https://img.shields.io/badge/agent-agnostic-blueviolet) ![networks](https://img.shields.io/badge/networks-EVM%20%2B%20Solana%20%2B%20NEAR-blueviolet)
 
 > An agent-agnostic **containment layer** for AI agents that control a wallet: it inspects a proposed transaction and allows or blocks it by rules the agent cannot override — before anything reaches the chain.
 
@@ -22,10 +22,21 @@ const d = inspect(tx, cfg, newState(tx.balance));
 if (!d.allow) block(d.reason);
 ```
 
+## NEAR adapter
+
+`near-adapter.ts` maps a NEAR agent's wallet tool-call (`ft_transfer`, native `Transfer`, `AddKey`, bridge calls) into a `ProposedTx`, so the **same rules** gate a NEAR agent:
+
+```ts
+import { inspectNear } from "./near-adapter.js";
+const d = inspectNear({ method: "ft_transfer", asset: "wrap.near",
+  args: { receiver_id: "alice.near", amount: "20" }, balance: "100" }, cfg, state);
+```
+
 ## Tests
 ```
 npx tsx port-test.ts   # rule checks
 npx tsx fp-test.ts     # no false positives on legitimate actions
+npx tsx near-test.ts   # NEAR adapter: drain / handover / bridge / dedup all gated
 ```
 
 ## Ecosystem
