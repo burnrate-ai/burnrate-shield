@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@coinbase/agentkit": "^0.10.4",
+    "viem": "^2.21.55"
+  }
+}
