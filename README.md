@@ -15,7 +15,7 @@
 - **bridge gate** — a bridge-out to a non-allowlisted recipient (an address allowlist does not cover a bridge)
 - **deferred-exec block** — durable-nonce / deferred execution: a pre-sign guard cannot re-check it later → blocked as a class
 - **dedup (idempotency)** — an exact repeat of a recent payment (same payee + asset + amount) is blocked as a replay (e.g. agent told "payment failed, pay again"). **Guard-owned:** an agent-supplied idempotency key is *not* trusted — the agent is the one being deceived — so the only way an identical repeat passes is an owner-authorized recurring payee (`recurringPayees`). Honest one-off invoices differ in amount and pass. Attack class surfaced by [Clearance](https://github.com/Selliksss/clearance)
-- **strict allowlist** (`strictAllowlist`, opt-in) — for a payment agent with a fixed payee list, any payee not allowlisted (and not a recurring payee) is blocked regardless of amount; stops a small lookalike payment that sits under the drain/velocity caps (Clearance **G39**)
+- **strict allowlist** (`strictAllowlist`, **ON by default**) — any payee not allowlisted (and not a recurring payee) is blocked regardless of amount; stops a small lookalike payment that sits under the drain/velocity caps (Clearance **G39**). Set `strictAllowlist: false` for a general wallet that must pay new one-off destinations (it then falls back to the drain/velocity caps)
 - **`rollbackPay(state, tx, cfg)`** — the dedup key is recorded at allow-time, before the on-chain result; if the signed send reverts, call this so the owner's honest retry is not blocked as a phantom duplicate
 
 ```ts

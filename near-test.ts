@@ -33,12 +33,12 @@ inspectNear({ method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "p
 console.log("honest recurring payroll :", ok(inspectNear(
   { method: "ft_transfer", asset: "wrap.near", args: { receiver_id: "payroll.near", amount: "20" }, balance: "100" }, cfg, ren)));
 
-// Clearance G39: a 2-NEAR payment to the lookalike sh0p.sandbox. Under the % caps it passes by default;
-// strict-allowlist mode (for a payment agent with a fixed payee list) blocks it.
-console.log("G39 lookalike, default   :", ok(inspectNear(
-  { method: "Transfer", receiverId: "sh0p.sandbox", deposit: "2", balance: "100" }, cfg, newState(100n))), "(expected allow — under caps)");
-const strict: ShieldConfig = { ...cfg, strictAllowlist: true };
-console.log("G39 lookalike, STRICT    :", ok(inspectNear(
-  { method: "Transfer", receiverId: "sh0p.sandbox", deposit: "2", balance: "100" }, strict, newState(100n))), "(expected BLOCK)");
-console.log("strict: allowlisted dest :", ok(inspectNear(
-  { method: "Transfer", receiverId: "alice.near", deposit: "2", balance: "100" }, strict, newState(100n))), "(expected allow)");
+// Clearance G39: a 2-NEAR payment to the lookalike sh0p.sandbox. Strict allowlist is now the DEFAULT,
+// so the lookalike is blocked; only a permissive (strictAllowlist:false) config lets it pass under the caps.
+const permissive: ShieldConfig = { ...cfg, strictAllowlist: false };
+console.log("G39 lookalike, DEFAULT (strict) :", ok(inspectNear(
+  { method: "Transfer", receiverId: "sh0p.sandbox", deposit: "2", balance: "100" }, cfg, newState(100n))), "(expected BLOCK)");
+console.log("G39 lookalike, permissive       :", ok(inspectNear(
+  { method: "Transfer", receiverId: "sh0p.sandbox", deposit: "2", balance: "100" }, permissive, newState(100n))), "(expected allow — strict off)");
+console.log("default: allowlisted dest       :", ok(inspectNear(
+  { method: "Transfer", receiverId: "alice.near", deposit: "2", balance: "100" }, cfg, newState(100n))), "(expected allow)");

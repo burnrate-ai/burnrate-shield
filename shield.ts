@@ -33,11 +33,11 @@ export interface ShieldConfig {
                              //           payments. Default 8; 0 disables.
   recurringPayees?: Set<string>; // lower-cased payees the OWNER pre-authorized for repeat payments
                              //           (the ONLY way an identical repeat is allowed — the agent cannot opt in).
-  strictAllowlist?: boolean; // if set, ANY transfer to a payee not on the allowlist (and not a recurring
-                             //           payee) is blocked outright, regardless of amount. For a payment
-                             //           agent with a fixed payee list this stops a small lookalike payment
-                             //           (Clearance G39: 2 NEAR to sh0p.sandbox slipped under the % caps).
-                             //           Off by default — a general wallet may pay new one-off destinations.
+  strictAllowlist?: boolean; // ANY transfer to a payee not on the allowlist (and not a recurring payee)
+                             //           is blocked outright, regardless of amount — stops a small lookalike
+                             //           payment that sits under the % caps (Clearance G39). ON BY DEFAULT
+                             //           (the safe default for an agent wallet). Set `false` for a general
+                             //           wallet that must be able to pay new one-off destinations.
 }
 
 // Per-session state for the velocity rule. Create once per agent session and pass to every inspect().
@@ -143,7 +143,7 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
     //     allowlisted nor an owner-authorized recurring payee is blocked outright — this stops a small
     //     lookalike payment (Clearance G39) that the % drain/velocity caps let through.
     const knownPayee = allowed || !!cfg.recurringPayees?.has(dest);
-    if (cfg.strictAllowlist && !knownPayee) {
+    if (cfg.strictAllowlist !== false && !knownPayee) {   // strict is the DEFAULT; set strictAllowlist:false to opt out
       return { allow: false,
         reason: `payee ${tx.to} is not on the allowlist (strict mode) — only pre-approved payees may receive ${tx.asset}` };
     }

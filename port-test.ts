@@ -33,11 +33,11 @@ const idC = newState(100n);
 inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 20n, balance: 100n }, cfg, idC);
 console.log("two invoices (diff amount) allow?:", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 35n, balance: 100n }, cfg, idC).allow);
 
-// --- G39 lookalike payee (Clearance): 2% to a non-allowlisted dest slips under the 50% caps ---
-console.log("G39 lookalike, default   (allow?):", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, cfg, newState(100n)).allow, "  (expected true — under caps)");
-const strict: ShieldConfig = { ...cfg, strictAllowlist: true };
-console.log("G39 lookalike, STRICT    :", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, strict, newState(100n)).reason);
-console.log("strict: allowlisted dest (allow?):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 2n, balance: 100n }, strict, newState(100n)).allow, "  (expected true)");
+// --- G39 lookalike payee (Clearance): strict allowlist is now the DEFAULT, so the lookalike is blocked ---
+const permissive: ShieldConfig = { ...cfg, strictAllowlist: false };
+console.log("G39 lookalike, DEFAULT (strict)  :", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, cfg, newState(100n)).reason);
+console.log("G39 lookalike, permissive (allow?):", inspect({ kind: "eth_transfer", to: "sh0pDest", asset: "ETH", amount: 2n, balance: 100n }, permissive, newState(100n)).allow, "  (expected true — strict off, under caps)");
+console.log("default: allowlisted dest (allow?):", inspect({ kind: "eth_transfer", to: "ownerDest", asset: "ETH", amount: 2n, balance: 100n }, cfg, newState(100n)).allow, "  (expected true)");
 
 // --- rollbackPay: an allowed payment that FAILS on chain must not block the honest retry ---
 const rb = newState(100n);
