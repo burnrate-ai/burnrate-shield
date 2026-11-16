@@ -53,9 +53,16 @@ export interface ShieldConfig {
 export interface ShieldState {
   sessionStartBalance: bigint;  // balance at session start, basis for the cumulative cap
   movedOut: bigint;             // cumulative non-allowlisted outflow allowed so far this session
-  recentPays: string[];         // dedup: ordered log of RECORDED (allowed) payment keys, canonical
-  seen: Set<string>;            // dedup: authoritative set of recorded keys (unbounded per session — R2)
+  recentPays: string[];         // dedup: ordered log of RECORDED (allowed) payment keys, canonical (FIFO, capped — R13)
+  seen: Set<string>;            // dedup: authoritative set of recorded keys (bounded FIFO — R2 kept flush-proof by R8, R13 caps growth)
 }
+
+// R13: cap the dedup window so a long session (or a flood of allowlisted distinct-amount pays, which skip the
+// drain/velocity caps) cannot grow `seen`/`recentPays` without bound → memory DoS. Safe because R8 records a key
+// ONLY after an action is ALLOWED, so evicting the oldest key costs the attacker DEDUP_WINDOW_CAP *genuine* allowed
+// payments — the cheap "flush with blocked txs" vector (R2) stays closed; only a replay separated by that many
+// distinct allowed pays can recur, which is operationally irrelevant for idempotency.
+export const DEDUP_WINDOW_CAP = 4096;
 
 export function newState(sessionStartBalance: bigint): ShieldState {
   return { sessionStartBalance, movedOut: 0n, recentPays: [], seen: new Set<string>() };
@@ -195,7 +202,14 @@ export function inspect(tx: ProposedTx, cfg: ShieldConfig, state?: ShieldState):
 
     // 7e. RECORD the dedup key ONLY now, after the action has passed every gate (R8 — a blocked transfer
     //     never pollutes the window, so it can neither be flushed for free nor cause a later false-block).
-    if (dedupOn) { state!.seen.add(payKey); state!.recentPays.push(payKey); }
+    if (dedupOn) {
+      state!.seen.add(payKey);
+      state!.recentPays.push(payKey);
+      if (state!.recentPays.length > DEDUP_WINDOW_CAP) {    // R13: bounded FIFO — evict the oldest recorded key
+        const evicted = state!.recentPays.shift()!;         // (each key is unique in the window, so delete is exact)
+        state!.seen.delete(evicted);
+      }
+    }
   }
 
   return { allow: true, reason: "within policy" };

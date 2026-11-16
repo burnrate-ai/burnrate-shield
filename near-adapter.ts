@@ -62,7 +62,17 @@ export function nearToProposedTx(c: NearCall): ProposedTx | null {
       : { kind: "spl_delegate", to: String(perm?.receiver_id ?? c.receiverId ?? to), asset: "NEAR", amount: 0n, ...base };
   }
 
-  // DeployContract / stake / delete_key / storage_deposit / view calls — no value-move the shield models.
+  // R14 (default-deny): any OTHER method that attaches a NEAR deposit still MOVES value — a generic FunctionCall,
+  // stake, DeployContract, storage_deposit, etc. Previously these mapped to null → inspectNear allowed them
+  // UNGATED (adapter-level R4). Treat the attached deposit as a native value move to the call target so the SAME
+  // strict-allowlist / drain / velocity gates apply. Methods with no deposit and no value move (pure view, delete_key)
+  // remain null (nothing to gate).
+  const deposit = BigInt(c.deposit ?? "0");
+  if (deposit > 0n) {
+    const to = String(c.receiverId ?? c.args?.receiver_id ?? "");
+    if (bridges.has(to)) return { kind: "bridge", to, asset: "NEAR", amount: deposit, ...base };
+    return { kind: "eth_transfer", to, asset: "NEAR", amount: deposit, ...base };
+  }
   return null;
 }
 
